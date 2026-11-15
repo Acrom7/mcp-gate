@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.1 — 2026-11-15
+
 - A timed-out shared call records the failure before the next waiter can take the worker, so that queued call is not dispatched.
 - README visuals: wordmark, before/after diagram, and a setup recording.
 - README rewritten.
@@ -16,7 +18,7 @@
 - The Windows release download check passes the archive name to tar relative to its directory. Git Bash tar treated `C:\...` as a remote host.
 - The test client reads an SSE response through the end of its HTTP body before the next request. A partial read on Windows could make the following response empty.
 
-## 0.1.0 — unreleased
+## 0.1.0 — 2026-11-14
 
 - Public `mcp-gate` command with setup, status and remove.
 - npm packages are `@matvei-radchenko/mcp-gate` and `@matvei-radchenko/mcp-gate-bin-{darwin-arm64,darwin-x64,win32-x64}`. The command name stays `mcp-gate`.
