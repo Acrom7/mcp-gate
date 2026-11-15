@@ -1,57 +1,73 @@
 # Setup wizard recording.
 #
+# Story: run setup, see the connections it found, select one,
+# read the preview of what would change, then cancel.
+#
 # A release binary on Linux exits before any prompt
 # ("Automatic setup supports macOS and Windows only").
 # This tape uses a local `cargo build --features test-backend --bin mcp-gate`
-# and a throwaway home. It selects fixture connections, shows the preview,
-# and cancels. Nothing is registered.
+# and a throwaway home with three fixture connections. The fixture
+# executables are stubs that exit immediately. Nothing is registered.
 #
+# Requires vhs (https://github.com/charmbracelet/vhs) with ttyd and ffmpeg.
 # Run from the repository root: vhs docs/assets/setup-demo.tape
 
 Output "docs/assets/setup-demo.gif"
 
 Set Shell "bash"
-Set FontSize 16
-Set Width 1040
-Set Height 700
-Set Padding 20
-Set Framerate 8
-Set TypingSpeed 25ms
+Set FontSize 20
+Set Width 1380
+Set Height 680
+Set Padding 28
+Set Framerate 10
+Set TypingSpeed 80ms
+Set Theme "GitHub Dark"
 
 Hide
-Type `rm -rf /tmp/mcp-gate-demo && mkdir -p /tmp/mcp-gate-demo/.codex`
+Type `D=/tmp/mcp-gate-demo; rm -rf $D && mkdir -p $D/.codex $D/work $D/bin`
 Enter
-Type `printf '%s\n' '[mcp_servers.mail]' 'command = "/bin/true"' 'cwd = "/tmp/mcp-gate-demo"' '' '[mcp_servers.docs]' 'command = "/bin/true"' 'cwd = "/tmp/mcp-gate-demo"' > /tmp/mcp-gate-demo/.codex/config.toml`
+Type `for b in telegram-mcp github-mcp-server; do printf '#!/bin/sh\nexit 0\n' > $D/bin/$b; chmod +x $D/bin/$b; done`
 Enter
-Type `printf '%s\n' '{"mcpServers":{"browser":{"command":"/bin/true","args":[],"cwd":"/tmp/mcp-gate-demo"}}}' > /tmp/mcp-gate-demo/.claude.json`
+Type `printf '%s\n' '[mcp_servers.telegram]' 'command = "telegram-mcp"' 'cwd = "/tmp/mcp-gate-demo/work"' '' '[mcp_servers.playwright]' 'command = "npx"' 'args = ["@playwright/mcp@latest"]' 'cwd = "/tmp/mcp-gate-demo/work"' > $D/.codex/config.toml`
 Enter
-Type `export HOME=/tmp/mcp-gate-demo MCP_GATE_TEST_HOME=/tmp/mcp-gate-demo MCP_GATE_TEST_ROOT=/tmp/mcp-gate-demo/state`
+Type `printf '%s\n' '{"mcpServers":{"github":{"command":"github-mcp-server","args":["stdio"],"cwd":"/tmp/mcp-gate-demo/work"}}}' > $D/.claude.json`
 Enter
-Type `export PATH="$PWD/target/debug:$PATH" PS1='$ ' TERM=xterm-256color`
+Type `export HOME=$D MCP_GATE_TEST_HOME=$D MCP_GATE_TEST_ROOT=$D/state`
 Enter
-Type `cd /tmp/mcp-gate-demo && clear`
+Type `export PATH="$PWD/target/debug:$D/bin:$PATH" PS1='$ ' TERM=xterm-256color`
 Enter
+Type `cd $D && clear`
+Enter
+Sleep 500ms
 Show
 
-Sleep 400ms
+# 1. Run setup.
+Sleep 800ms
 Type "mcp-gate setup"
-Enter
-Sleep 1200ms
-Enter
-Sleep 2200ms
-Type "mail"
-Sleep 700ms
-Space
-Sleep 900ms
-Ctrl+U
-Sleep 400ms
-Type "browser"
-Sleep 700ms
-Space
-Sleep 1100ms
-Enter
-Sleep 4500ms
-Type "can"
 Sleep 600ms
 Enter
-Sleep 1500ms
+
+# 2. Personal settings on this computer.
+Sleep 2500ms
+Enter
+
+# 3. Found connections. Nothing is selected by default.
+Sleep 3000ms
+Down
+Sleep 900ms
+Space
+Sleep 2000ms
+
+# 4. Review the preview of what changes.
+Enter
+Sleep 6500ms
+
+# 5. Cancel. Nothing was changed.
+Down
+Sleep 700ms
+Down
+Sleep 700ms
+Down
+Sleep 1200ms
+Enter
+Sleep 3500ms

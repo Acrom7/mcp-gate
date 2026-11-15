@@ -1,83 +1,115 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 548" role="img" aria-labelledby="ba-title ba-desc">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 600" role="img" aria-labelledby="ba-title ba-desc">
   <title id="ba-title">Before and after mcp-gate</title>
-  <desc id="ba-desc">Before, every client session starts its own copy of each stdio server. After, clients share one lazy gateway per server. A backend starts only for a real call: one shared process for a stateless API, a separate process per session for a browser, and idle sessions are reclaimed.</desc>
-  <rect width="960" height="548" rx="18" fill="#f6f5f2"/>
-  <g font-family="ui-sans-serif, system-ui, sans-serif" fill="#1c1917">
-    <rect x="20" y="20" width="452" height="392" rx="14" fill="#fffefb" stroke="#e4e0d8"/>
+  <desc id="ba-desc">The same three sessions and three stdio servers in both panels. Before: every session starts its own copy of every server, nine processes. After: the sessions talk to one small gateway per server; a stateless server runs one shared backend, an unused server is not started, and a browser server gets a backend per session that is closed when idle. Example from one Mac: one Telegram MCP backend uses about 400 MB, so five sessions without a gateway would be about 2 GB by arithmetic, while mcp-gate runs one shared backend plus a gateway of about 14 MB.</desc>
+  <defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M1 1 L9 5 L1 9" fill="none" stroke="#1c1917" stroke-width="1.6"/></marker></defs>
+  <rect width="960" height="600" rx="18" fill="#f6f5f2"/>
+  <g font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" fill="#1c1917">
+    <rect x="20" y="20" width="452" height="336" rx="14" fill="#fffefb" stroke="#e4e0d8"/>
     <text x="40" y="52" font-size="18" font-weight="700">Before</text>
     <text x="40" y="76" font-size="13" fill="#6b6560">Each session starts its own copy of every server.</text>
-
-    <g font-size="13">
-      <rect x="40" y="100" width="196" height="248" rx="10" fill="#f6f5f2" stroke="#e4e0d8"/>
-      <text x="56" y="126" font-weight="700">Session</text>
-      <text x="118" y="126" fill="#6b6560">own processes</text>
-      <rect x="56" y="144" width="164" height="52" rx="8" fill="#fffefb" stroke="#1c1917"/>
-      <text x="72" y="166" font-weight="600">mail</text>
-      <text x="72" y="184" font-size="12" fill="#6b6560">stdio process</text>
-      <rect x="56" y="208" width="164" height="52" rx="8" fill="#fffefb" stroke="#1c1917"/>
-      <text x="72" y="230" font-weight="600">docs</text>
-      <text x="72" y="248" font-size="12" fill="#6b6560">stdio process</text>
-      <rect x="56" y="272" width="164" height="52" rx="8" fill="#fffefb" stroke="#1c1917"/>
-      <text x="72" y="294" font-weight="600">browser</text>
-      <text x="72" y="312" font-size="12" fill="#6b6560">stdio process</text>
-
-      <rect x="256" y="100" width="196" height="248" rx="10" fill="#f6f5f2" stroke="#e4e0d8"/>
-      <text x="272" y="126" font-weight="700">Session</text>
-      <text x="334" y="126" fill="#6b6560">another copy</text>
-      <rect x="272" y="144" width="164" height="52" rx="8" fill="#fffefb" stroke="#1c1917"/>
-      <text x="288" y="166" font-weight="600">mail</text>
-      <text x="288" y="184" font-size="12" fill="#6b6560">stdio process</text>
-      <rect x="272" y="208" width="164" height="52" rx="8" fill="#fffefb" stroke="#1c1917"/>
-      <text x="288" y="230" font-weight="600">docs</text>
-      <text x="288" y="248" font-size="12" fill="#6b6560">stdio process</text>
-      <rect x="272" y="272" width="164" height="52" rx="8" fill="#fffefb" stroke="#1c1917"/>
-      <text x="288" y="294" font-weight="600">browser</text>
-      <text x="288" y="312" font-size="12" fill="#6b6560">stdio process</text>
-    </g>
-    <text x="40" y="386" font-size="13" fill="#6b6560">N sessions × M servers, including for discovery.</text>
-
-    <rect x="488" y="20" width="452" height="392" rx="14" fill="#fffefb" stroke="#e4e0d8"/>
+    <rect x="40" y="108" width="96" height="48" rx="8" fill="#f6f5f2" stroke="#e4e0d8"/>
+    <text x="88" y="137" font-size="13" font-weight="600" text-anchor="middle">Session 1</text>
+    <rect x="40" y="172" width="96" height="48" rx="8" fill="#f6f5f2" stroke="#e4e0d8"/>
+    <text x="88" y="201" font-size="13" font-weight="600" text-anchor="middle">Session 2</text>
+    <rect x="40" y="236" width="96" height="48" rx="8" fill="#f6f5f2" stroke="#e4e0d8"/>
+    <text x="88" y="265" font-size="13" font-weight="600" text-anchor="middle">Session 3</text>
+    <path d="M136 132 H158" stroke="#1c1917" stroke-width="1.5" fill="none" marker-end="url(#arr)"/>
+    <rect x="164" y="108" width="92" height="48" rx="8" fill="#fffefb" stroke="#1c1917"/>
+    <text x="210" y="130" font-size="13" font-weight="600" text-anchor="middle">telegram</text>
+    <text x="210" y="146" font-size="11" fill="#6b6560" text-anchor="middle">process</text>
+    <rect x="264" y="108" width="92" height="48" rx="8" fill="#fffefb" stroke="#1c1917"/>
+    <text x="310" y="130" font-size="13" font-weight="600" text-anchor="middle">mail</text>
+    <text x="310" y="146" font-size="11" fill="#6b6560" text-anchor="middle">process</text>
+    <rect x="364" y="108" width="92" height="48" rx="8" fill="#fffefb" stroke="#1c1917"/>
+    <text x="410" y="130" font-size="13" font-weight="600" text-anchor="middle">browser</text>
+    <text x="410" y="146" font-size="11" fill="#6b6560" text-anchor="middle">process</text>
+    <path d="M136 196 H158" stroke="#1c1917" stroke-width="1.5" fill="none" marker-end="url(#arr)"/>
+    <rect x="164" y="172" width="92" height="48" rx="8" fill="#fffefb" stroke="#1c1917"/>
+    <text x="210" y="194" font-size="13" font-weight="600" text-anchor="middle">telegram</text>
+    <text x="210" y="210" font-size="11" fill="#6b6560" text-anchor="middle">process</text>
+    <rect x="264" y="172" width="92" height="48" rx="8" fill="#fffefb" stroke="#1c1917"/>
+    <text x="310" y="194" font-size="13" font-weight="600" text-anchor="middle">mail</text>
+    <text x="310" y="210" font-size="11" fill="#6b6560" text-anchor="middle">process</text>
+    <rect x="364" y="172" width="92" height="48" rx="8" fill="#fffefb" stroke="#1c1917"/>
+    <text x="410" y="194" font-size="13" font-weight="600" text-anchor="middle">browser</text>
+    <text x="410" y="210" font-size="11" fill="#6b6560" text-anchor="middle">process</text>
+    <path d="M136 260 H158" stroke="#1c1917" stroke-width="1.5" fill="none" marker-end="url(#arr)"/>
+    <rect x="164" y="236" width="92" height="48" rx="8" fill="#fffefb" stroke="#1c1917"/>
+    <text x="210" y="258" font-size="13" font-weight="600" text-anchor="middle">telegram</text>
+    <text x="210" y="274" font-size="11" fill="#6b6560" text-anchor="middle">process</text>
+    <rect x="264" y="236" width="92" height="48" rx="8" fill="#fffefb" stroke="#1c1917"/>
+    <text x="310" y="258" font-size="13" font-weight="600" text-anchor="middle">mail</text>
+    <text x="310" y="274" font-size="11" fill="#6b6560" text-anchor="middle">process</text>
+    <rect x="364" y="236" width="92" height="48" rx="8" fill="#fffefb" stroke="#1c1917"/>
+    <text x="410" y="258" font-size="13" font-weight="600" text-anchor="middle">browser</text>
+    <text x="410" y="274" font-size="11" fill="#6b6560" text-anchor="middle">process</text>
+    <text x="40" y="318" font-size="14" font-weight="700">3 sessions × 3 servers = 9 processes</text>
+    <text x="40" y="338" font-size="12.5" fill="#6b6560">All start with the session, even just to list tools.</text>
+    <rect x="488" y="20" width="452" height="336" rx="14" fill="#fffefb" stroke="#e4e0d8"/>
     <text x="508" y="52" font-size="18" font-weight="700">After</text>
-    <text x="508" y="76" font-size="13" fill="#6b6560">One lazy gateway per server. A call starts the backend.</text>
-
-    <g font-size="13">
-      <rect x="508" y="104" width="92" height="36" rx="8" fill="#f6f5f2" stroke="#e4e0d8"/>
-      <text x="524" y="127">sessions</text>
-      <path d="M600 122 H628" stroke="#1c1917" stroke-width="1.5" fill="none"/>
-      <path d="M622 116 L630 122 L622 128" fill="none" stroke="#1c1917" stroke-width="1.5"/>
-      <rect x="632" y="100" width="140" height="44" rx="8" fill="#1c1917"/>
-      <text x="648" y="118" fill="#f6f5f2" font-size="11">mcp-gate</text>
-      <text x="648" y="134" fill="#f6f5f2" font-weight="700">mail</text>
-      <path d="M772 122 H800" stroke="#1c1917" stroke-width="1.5" fill="none"/>
-      <path d="M794 116 L802 122 L794 128" fill="none" stroke="#1c1917" stroke-width="1.5"/>
-      <rect x="804" y="100" width="116" height="44" rx="8" fill="#fffefb" stroke="#1c1917"/>
-      <text x="818" y="118" font-weight="600">one backend</text>
-      <text x="818" y="134" font-size="12" fill="#6b6560">on tools/call</text>
-      <text x="632" y="162" font-size="12" fill="#6b6560">Stateless API: shared, one at a time.</text>
-
-      <rect x="508" y="196" width="92" height="36" rx="8" fill="#f6f5f2" stroke="#e4e0d8"/>
-      <text x="524" y="219">sessions</text>
-      <path d="M600 214 H628" stroke="#1c1917" stroke-width="1.5" fill="none"/>
-      <path d="M622 208 L630 214 L622 220" fill="none" stroke="#1c1917" stroke-width="1.5"/>
-      <rect x="632" y="192" width="140" height="44" rx="8" fill="#1c1917"/>
-      <text x="648" y="210" fill="#f6f5f2" font-size="11">mcp-gate</text>
-      <text x="648" y="226" fill="#f6f5f2" font-weight="700">browser</text>
-      <path d="M772 214 H800" stroke="#1c1917" stroke-width="1.5" fill="none"/>
-      <path d="M794 208 L802 214 L794 220" fill="none" stroke="#1c1917" stroke-width="1.5"/>
-      <rect x="804" y="188" width="116" height="36" rx="8" fill="#fffefb" stroke="#1c1917"/>
-      <text x="816" y="211">this session</text>
-      <rect x="804" y="232" width="116" height="36" rx="8" fill="#fffefb" stroke="#8a847c" stroke-dasharray="4 3"/>
-      <text x="816" y="254" fill="#6b6560">idle, reclaimed</text>
-      <text x="632" y="286" font-size="12" fill="#6b6560">Browser: one backend per session.</text>
-    </g>
-    <text x="508" y="330" font-size="13" fill="#6b6560">Discovery stays on the gateway.</text>
-    <text x="508" y="350" font-size="13" fill="#6b6560">The upstream process stays down until a real call.</text>
-    <text x="508" y="386" font-size="13" fill="#6b6560">An idle session-owned backend is closed and its worker freed.</text>
-
-    <rect x="20" y="428" width="920" height="100" rx="14" fill="#fffefb" stroke="#e4e0d8"/>
-    <text x="40" y="458" font-size="13" font-weight="700">Example from one maintainer's Mac</text>
-    <text x="318" y="458" font-size="13" fill="#6b6560">One observation, not a benchmark.</text>
-    <text x="40" y="486" font-size="14">Eight gateway processes together use about 22 MB RSS.</text>
-    <text x="40" y="508" font-size="14">Before migration, Codex had accumulated about 13 copies of one stdio mail server, about 160 MB.</text>
+    <text x="508" y="76" font-size="13" fill="#6b6560">Same sessions. One small gateway per server.</text>
+    <rect x="508" y="108" width="96" height="48" rx="8" fill="#f6f5f2" stroke="#e4e0d8"/>
+    <text x="556" y="137" font-size="13" font-weight="600" text-anchor="middle">Session 1</text>
+    <rect x="508" y="172" width="96" height="48" rx="8" fill="#f6f5f2" stroke="#e4e0d8"/>
+    <text x="556" y="201" font-size="13" font-weight="600" text-anchor="middle">Session 2</text>
+    <rect x="508" y="236" width="96" height="48" rx="8" fill="#f6f5f2" stroke="#e4e0d8"/>
+    <text x="556" y="265" font-size="13" font-weight="600" text-anchor="middle">Session 3</text>
+    <path d="M626 132 V260" stroke="#1c1917" stroke-width="1.5" fill="none"/>
+    <path d="M604 132 H626" stroke="#1c1917" stroke-width="1.5" fill="none"/>
+    <path d="M626 132 H640" stroke="#1c1917" stroke-width="1.5" fill="none" marker-end="url(#arr)"/>
+    <path d="M604 196 H626" stroke="#1c1917" stroke-width="1.5" fill="none"/>
+    <path d="M626 196 H640" stroke="#1c1917" stroke-width="1.5" fill="none" marker-end="url(#arr)"/>
+    <path d="M604 260 H626" stroke="#1c1917" stroke-width="1.5" fill="none"/>
+    <path d="M626 260 H640" stroke="#1c1917" stroke-width="1.5" fill="none" marker-end="url(#arr)"/>
+    <rect x="644" y="108" width="116" height="48" rx="8" fill="#1c1917"/>
+    <text x="660" y="128" font-size="11" fill="#d6d3cd">mcp-gate</text>
+    <text x="660" y="145" font-size="13" font-weight="700" fill="#f6f5f2">telegram</text>
+    <rect x="644" y="172" width="116" height="48" rx="8" fill="#1c1917"/>
+    <text x="660" y="192" font-size="11" fill="#d6d3cd">mcp-gate</text>
+    <text x="660" y="209" font-size="13" font-weight="700" fill="#f6f5f2">mail</text>
+    <rect x="644" y="236" width="116" height="48" rx="8" fill="#1c1917"/>
+    <text x="660" y="256" font-size="11" fill="#d6d3cd">mcp-gate</text>
+    <text x="660" y="273" font-size="13" font-weight="700" fill="#f6f5f2">browser</text>
+    <path d="M760 132 H782" stroke="#1c1917" stroke-width="1.5" fill="none" marker-end="url(#arr)"/>
+    <rect x="786" y="108" width="134" height="48" rx="8" fill="#fffefb" stroke="#1c1917"/>
+    <text x="800" y="129" font-size="13" font-weight="600">1 shared backend</text>
+    <text x="800" y="145" font-size="11" fill="#6b6560">for all sessions</text>
+    <path d="M760 196 H782" stroke="#8a847c" stroke-width="1.5" fill="none" stroke-dasharray="3 3"/>
+    <rect x="786" y="172" width="134" height="48" rx="8" fill="#fffefb" stroke="#8a847c" stroke-dasharray="4 3"/>
+    <text x="800" y="193" font-size="13" font-weight="600" fill="#6b6560">not started</text>
+    <text x="800" y="209" font-size="11" fill="#6b6560">until a real call</text>
+    <path d="M760 260 H770 V247 H782" stroke="#1c1917" stroke-width="1.5" fill="none" marker-end="url(#arr)"/>
+    <path d="M770 260 V273 H782" stroke="#8a847c" stroke-width="1.5" fill="none" stroke-dasharray="3 3"/>
+    <rect x="786" y="236" width="134" height="22" rx="6" fill="#fffefb" stroke="#1c1917"/>
+    <text x="798" y="251" font-size="11.5" font-weight="600">Session 1 backend</text>
+    <rect x="786" y="262" width="134" height="22" rx="6" fill="#fffefb" stroke="#8a847c" stroke-dasharray="4 3"/>
+    <text x="798" y="277" font-size="11.5" fill="#6b6560">Session 2: idle, closed</text>
+    <text x="508" y="318" font-size="14" font-weight="700">3 gateways + only the backends in use</text>
+    <text x="508" y="338" font-size="12.5" fill="#6b6560">Shared for a stateless API, per session for a browser.</text>
+    <rect x="20" y="372" width="920" height="208" rx="14" fill="#fffefb" stroke="#e4e0d8"/>
+    <text x="40" y="402" font-size="14" font-weight="700">Example: Telegram MCP server (Java + TDLib) on one maintainer's Mac</text>
+    <text x="40" y="422" font-size="12.5" fill="#6b6560">macOS Apple Silicon, phys_footprint, 2026-11-15. One observation, not a benchmark.</text>
+    <text x="40" y="460" font-size="13" font-weight="600">Without a gateway</text>
+    <text x="40" y="477" font-size="11.5" fill="#6b6560">5 sessions, 5 copies</text>
+    <rect x="236" y="448" width="100" height="30" rx="5" fill="#fffefb" stroke="#1c1917"/>
+    <text x="286" y="468" font-size="12" text-anchor="middle">~400 MB</text>
+    <rect x="340" y="448" width="100" height="30" rx="5" fill="#fffefb" stroke="#1c1917"/>
+    <text x="390" y="468" font-size="12" text-anchor="middle">~400 MB</text>
+    <rect x="444" y="448" width="100" height="30" rx="5" fill="#fffefb" stroke="#1c1917"/>
+    <text x="494" y="468" font-size="12" text-anchor="middle">~400 MB</text>
+    <rect x="548" y="448" width="100" height="30" rx="5" fill="#fffefb" stroke="#1c1917"/>
+    <text x="598" y="468" font-size="12" text-anchor="middle">~400 MB</text>
+    <rect x="652" y="448" width="100" height="30" rx="5" fill="#fffefb" stroke="#1c1917"/>
+    <text x="702" y="468" font-size="12" text-anchor="middle">~400 MB</text>
+    <text x="766" y="461" font-size="14" font-weight="700">≈ 2 GB</text>
+    <text x="766" y="477" font-size="11" fill="#6b6560">5 × 400 MB, arithmetic</text>
+    <text x="40" y="516" font-size="13" font-weight="600">With mcp-gate</text>
+    <text x="40" y="533" font-size="11.5" fill="#6b6560">1 shared backend + gateway</text>
+    <rect x="236" y="504" width="100" height="30" rx="5" fill="#fffefb" stroke="#1c1917"/>
+    <text x="286" y="524" font-size="12" text-anchor="middle">~400 MB</text>
+    <rect x="340" y="504" width="6" height="30" rx="2" fill="#1c1917"/>
+    <text x="358" y="524" font-size="14" font-weight="700">≈ 414 MB</text>
+    <text x="432" y="524" font-size="11.5" fill="#6b6560">the dark sliver is the ~14 MB gateway process</text>
+    <text x="40" y="564" font-size="11.5" fill="#6b6560">Each gateway process measured about 3–14 MB; eight gateways together used about 22 MB RSS.</text>
   </g>
 </svg>

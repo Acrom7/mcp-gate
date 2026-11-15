@@ -19,62 +19,38 @@
   <a href="https://github.com/Matvey-Radchenko/mcp-gate/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/Matvey-Radchenko/mcp-gate/ci.yml?label=CI"></a>
 </p>
 
-Discovery stays available while backends start on demand. Verified stateless API servers can share a single serialized backend; session-owned servers keep independent MCP connections. Setup rewrites personal Codex, OpenCode, and Claude Code connections so those apps talk to the gateway, then leaves the MCP packages themselves alone.
+mcp-gate puts a small Rust gateway in front of each stdio MCP server you already use in Codex, OpenCode, or Claude Code. Clients see the tool list right away, but the real server process starts only when a tool is actually called. A reviewed stateless server can share one backend across all sessions; session-owned servers, such as browsers, get one per session and are closed when idle.
 
 ```sh
 npx @matvei-radchenko/mcp-gate@latest setup
 ```
 
-In a terminal, `setup` and `remove` ask you to choose connections and show a preview before changing anything. Type to search, arrows move, Space selects, Enter reviews, Esc goes back. Nothing is selected by default.
+`setup` lists the connections it found, lets you pick some (nothing is selected by default), and shows a preview before it changes anything. Restart each affected app once afterwards. `remove` puts the direct connections back.
 
-![Setup wizard on fixture connections: search, select, preview, then cancel](docs/assets/setup-demo.gif)
+![Setup wizard: run setup, see three found connections, select codex / telegram, read the preview of what would change, then cancel with no changes applied](docs/assets/setup-demo.gif)
+
+Keys: type to search, arrows move, Space selects, Enter reviews, Esc goes back.
 
 ## Why a gateway
 
-A stdio MCP server that starts with the client starts on every session, even when you only needed the tool catalog. mcp-gate sits in front as a small Rust process:
+A stdio MCP server configured in a client starts with every session, even when the session only needed the tool list. Three sessions and three servers mean nine processes. mcp-gate keeps one small gateway per server and starts backends only when they are used:
 
-![Before, each session starts every stdio server. After, one lazy gateway per server starts a backend only for a real call.](docs/assets/before-after.svg)
+![The same three sessions and three servers in both panels. Before: nine processes, one copy of every server per session. After: three gateways; Telegram runs one shared backend, mail is not started until a real call, and the browser has a backend only for the session using it, closed when idle. Below: one Telegram MCP backend uses about 400 MB, so five sessions without a gateway are about 2 GB by arithmetic; with mcp-gate it is one shared backend plus a gateway of about 14 MB.](docs/assets/before-after.svg)
+
+For example, one Telegram MCP backend (Java + TDLib) used about 400 MB on a maintainer's Mac. Without a gateway, every session that loads it starts its own copy, so five sessions come to about 2 GB (arithmetic, not a measurement). With mcp-gate it runs as one shared backend, and its gateway process uses about 14 MB. That is one observation, not a benchmark.
 
 - **Lazy backends.** `initialize`, `tools/list`, and the rest of discovery are served from a reviewed catalog snapshot. The upstream process starts when a real call (`tools/call`, `resources/read`, `prompts/get`) needs it.
 - **Shared or session-owned.** A reviewed stateless API can share one serialized backend across clients. A session-owned server (browsers, anything with per-client state) gets its own MCP connection. Shared mode is opt-in and is not safe for an arbitrary browser server.
-- **Idle session workers.** A session-owned backend closes after 15 minutes with no request and no open GET stream (`session_idle_seconds`, default 900), which frees its worker. If the process exits, the slot is released immediately. When every slot is busy, the longest-idle session that has already been idle for 2 minutes (`session_idle_evict_seconds`, default 120) is stopped so a new call can start. A running call is not evicted. Shared backends are not closed for being idle.
+- **Idle session backends close.** A session-owned backend closes after 15 minutes with no request and no open GET stream (`session_idle_seconds`, default 900). When every slot is busy, the longest-idle session that has been idle for at least 2 minutes (`session_idle_evict_seconds`, default 120) is stopped to make room. A running call is never evicted, and shared backends are not closed for being idle.
 - **No automatic replay.** Actions are never retried or replayed. After a backend crash or a restart, sessions and unfinished work are not restored.
 - **Managed client setup.** `setup` copies the binary into permanent versioned storage (independent of the npx cache), registers a user service (LaunchAgent on macOS, a logon Task Scheduler task on Windows), checks readiness, and only then changes personal client connections. Names and permission settings are preserved. Project files intended for Git are left untouched.
 - **Yours to undo.** `remove` restores direct connections. It does not delete MCP packages, user data, logs, browser artifacts, or old releases.
 
 You still install and update MCP packages, interpreters, Docker, and browsers. Setup's discovery runs the existing command, so `npx`, `uvx`, or Docker may download their own dependencies.
 
-## How it works
-
-```mermaid
-flowchart LR
-  subgraph clients [Clients]
-    Codex
-    OpenCode
-    Claude[Claude Code]
-  end
-  subgraph gate [mcp-gate]
-    HTTP[Loopback Streamable HTTP]
-    Catalog[Reviewed catalog]
-    HTTP --- Catalog
-  end
-  subgraph backends [Backends, started on demand]
-    Shared[Shared stdio server]
-    Session[Per-session stdio server]
-  end
-  clients -->|personal MCP config| HTTP
-  Catalog -->|discovery, no spawn| clients
-  HTTP -->|tools/call and friends| Shared
-  HTTP --> Session
-```
-
-Each configured MCP gets one gateway process and one authenticated loopback HTTP endpoint. Clients connect directly; there is no per-client stdio adapter. Remote HTTP and OAuth backends are not implemented. The upstream transport is local stdio.
-
-One request runs at a time per backend. Catalog drift fails closed until you regenerate and review the snapshot. A reusable skill for agents lives in [`skills/mcp-gate/SKILL.md`](skills/mcp-gate/SKILL.md). Lower-level contracts are in [architecture](docs/architecture.md), [configurable runtime](docs/configurable-runtime.md), and [tool policy](docs/tool-policy.md).
-
 ## Install
 
-The installed command is `mcp-gate`. Codex, OpenCode, and Claude Code invoke that executable. The scoped npm name is the package, not the command. Installing or updating the npm package does not switch existing connections. Run `setup` (or `setup` of an older build, to downgrade compatibly).
+The command is `mcp-gate`; `@matvei-radchenko/mcp-gate` is only the npm package name. Installing or updating the package does not switch existing connections by itself: run `setup` from the build you want (an older build downgrades compatibly).
 
 Release targets are **macOS ARM64**, **macOS Intel**, and **Windows x64**. Linux is not included.
 
@@ -118,13 +94,30 @@ Run `setup` again with a newer or older build to update compatible background se
 | `mcp-gate remove` | Restore selected connections, or all managed ones with `--all --yes`. |
 | `mcp-gate adopt <name>` | Record an unmanaged `local.mcp-gate.<name>` LaunchAgent in the local registry. Does not restart the gateway, edit client settings, or copy the binary. |
 
-`setup --dry-run` previews selected settings without launching a backend or writing files. A connection with no working directory stays in that preview: interactive setup asks for one, and `--cwd <dir>` sets it for every selected connection that does not already declare one. mcp-gate does not guess a directory. For a global `npx` or `uvx` server that does not read or write project-relative files, passing `--cwd "$HOME"` is an explicit choice; it is not the default. `--client`, `--server`, and `--project` narrow the selection. `--project` matters when Claude Code has a project-scoped server. `--yes` requires both an explicit client and server, except `remove --all`. `--diff` shows the command, arguments, working directory and gateway URL, and hides environment values, headers and anything secret-like. `--json` is global: it works before or after the subcommand and writes one versioned document to stdout. Diagnostics go to stderr.
+**Setup and remove options**
 
-`status --details` explains sources. A direct connection is reported as `health not checked` until a gateway exists. `status --probe` requests backend initialization only when the gateway can safely enter maintenance and has no existing backend; busy gateways are deferred. An explicit `--server` or `--client` that matches nothing is an error. A connection kind of `external` means the client already uses a gateway this installation did not set up, so `setup` and `remove` do not own it. A healthy gateway alone does not prove that a running application has switched to it. That note is shown only when this installation manages a connection.
+- `--dry-run` previews the selected changes without starting a backend or writing files.
+- `--client`, `--server`, and `--project` narrow the selection. `--project` matters when Claude Code has a project-scoped server.
+- `--cwd <dir>` sets the working directory for selected connections that do not declare one. Without it, interactive setup asks; mcp-gate never guesses. For a global `npx` or `uvx` server that does not use project files, `--cwd "$HOME"` is a fine explicit choice.
+- `--diff` shows the command, arguments, working directory, and gateway URL. Environment values, headers, and anything secret-like stay hidden.
+- `--yes` skips prompts and requires an explicit client and server, except `remove --all --yes`.
+- `--json` works before or after the subcommand and writes one versioned document to stdout. Diagnostics go to stderr.
 
-New gateways use a readable service label, `local.mcp-gate.<name>`. If that label is already taken, the next free `local.mcp-gate.<name>-2`, `-3`, … is used. The preview prints the label before anything is registered. Installations created by 0.1.0 keep their `local.mcp-gate.<uuid>` labels; status, setup and remove still manage them, and setup does not rename them. The same command, arguments, environment and working directory in more than one client share one gateway. Session mode still starts a separate backend for each MCP connection. Shared mode still uses one backend. A session-mode server is not attached to a shared-mode gateway.
+**Status**
 
-Each affected application needs one restart after `setup`. Claude local scope can override a selected project through personal settings; other project entries without a verified local override are skipped, as are commands whose environment still cannot be expanded. A personal command with no working directory is connected only after an explicit directory is chosen.
+- `status --details` explains where each connection comes from. A direct connection shows `health not checked` until it has a gateway.
+- `status --probe` asks a gateway to start its backend only when it has none and can safely pause; busy gateways are skipped.
+- A `--server` or `--client` that matches nothing is an error.
+- `external` means the client already uses a gateway this installation did not set up, so `setup` and `remove` leave it alone.
+- A healthy gateway does not prove that a running app has switched to it. Restart each affected app once after `setup`.
+
+**Labels and sharing**
+
+- New gateways get a readable service label, `local.mcp-gate.<name>`, or the next free `-2`, `-3`, … if it is taken. The preview shows the label before anything is registered.
+- Installations from 0.1.0 keep their `local.mcp-gate.<uuid>` labels. `status`, `setup`, and `remove` still manage them, and they are not renamed.
+- The same command, arguments, environment, and working directory in several clients share one gateway. Session mode still starts a separate backend per MCP connection, and a session-mode server is never attached to a shared-mode gateway.
+
+Claude Code local scope can override a selected project through personal settings. Other project entries without a verified local override are skipped, as are commands whose environment cannot be expanded.
 
 <details>
 <summary>Non-interactive / agent use</summary>
@@ -143,20 +136,41 @@ Do not pass `--yes` unless the user has already chosen the exact clients and ser
 
 </details>
 
-## Compared with other MCP gateways
+## How it works
 
-mcp-gate is a **local** process manager and client-config helper for **existing stdio** servers. It is not a transport converter, a remote OAuth shim, or an enterprise control plane.
+```mermaid
+flowchart LR
+  subgraph clients [Clients]
+    Codex
+    OpenCode
+    Claude[Claude Code]
+  end
+  subgraph gate [mcp-gate]
+    HTTP[Loopback Streamable HTTP]
+    Catalog[Reviewed catalog]
+    HTTP --- Catalog
+  end
+  subgraph backends [Backends, started on demand]
+    Shared[Shared stdio server]
+    Session[Per-session stdio server]
+  end
+  clients -->|personal MCP config| HTTP
+  Catalog -->|discovery, no spawn| clients
+  HTTP -->|tools/call and friends| Shared
+  HTTP --> Session
+```
 
-| | mcp-gate | [Supergateway](https://github.com/supercorp-ai/supergateway) / [mcp-proxy](https://github.com/sparfenyuk/mcp-proxy) | [mcp-remote](https://github.com/punkpeye/mcp-remote) | [ToolHive](https://github.com/stacklok/toolhive) |
-| --- | --- | --- | --- | --- |
-| Job | Lazy local Rust frontends, catalog discovery, managed setup for Codex / OpenCode / Claude Code | Bridge between stdio and SSE, WebSocket, or Streamable HTTP | Plug a remote MCP server into a stdio-only client, including OAuth | Run and govern MCP servers in containers, on the desktop, or on Kubernetes |
-| Upstream | Local stdio only | Local command or a remote URL | Remote HTTP / SSE | Images, packages, or remote servers |
-| Client config | `setup` / `remove` edit personal settings; Git project files are left alone | You paste a command or URL into the client | You paste an `npx mcp-remote ...` command into the client | Desktop app or CLI can attach clients |
-| Linux | Not a release target | Yes | Yes | Yes |
+Each configured MCP gets one gateway process and one authenticated loopback HTTP endpoint. Clients connect directly; there is no per-client stdio adapter. Remote HTTP and OAuth backends are not implemented. The upstream transport is local stdio.
+
+One request runs at a time per backend. Catalog drift fails closed until you regenerate and review the snapshot. A reusable skill for agents lives in [`skills/mcp-gate/SKILL.md`](skills/mcp-gate/SKILL.md). Lower-level contracts are in [architecture](docs/architecture.md), [configurable runtime](docs/configurable-runtime.md), and [tool policy](docs/tool-policy.md).
+
+## When to pick something else
+
+mcp-gate is for one person's machine: you already run stdio MCP servers from Codex, OpenCode, or Claude Code on macOS or Windows, and you want fewer idle processes without hand-editing client configs. It does not convert transports, connect remote or OAuth servers, or run on Linux. To expose a stdio server over SSE or Streamable HTTP, look at [Supergateway](https://github.com/supercorp-ai/supergateway) or [mcp-proxy](https://github.com/sparfenyuk/mcp-proxy); to plug a remote server into a stdio-only client, [mcp-remote](https://github.com/punkpeye/mcp-remote); to run and govern servers in containers or on Kubernetes, [ToolHive](https://github.com/stacklok/toolhive).
 
 ## Compatibility
 
-0.1.0 is published on npm and as [GitHub Release v0.1.0](https://github.com/Matvey-Radchenko/mcp-gate/releases/tag/v0.1.0). Native login acceptance is **macOS ARM64 only**. The Intel x86_64 check under Rosetta 2 has not been run; Windows x64 was smoke-tested under Wine, not on a native Windows login. Stability on native Intel Macs and Windows is not guaranteed, and reports are welcome.
+Releases are published on [npm](https://www.npmjs.com/package/@matvei-radchenko/mcp-gate) and [GitHub Releases](https://github.com/Matvey-Radchenko/mcp-gate/releases). Native login acceptance is **macOS ARM64 only**. The Intel x86_64 check under Rosetta 2 has not been run; Windows x64 was smoke-tested under Wine, not on a native Windows login. Stability on native Intel Macs and Windows is not guaranteed, and reports are welcome.
 
 CI runs formatting, Clippy, fixtures, and client/browser checks on all three release platforms; that is not the same thing as a native login test. The evidence table, tested client versions, and recipe constraints are in [docs/compatibility.md](docs/compatibility.md). Automatic shared-ownership recipes currently carry reviewed `macos-aarch64` conditions only.
 
@@ -195,4 +209,4 @@ This runs formatting, strict Clippy, source-size budgets, and ordinary fixture/u
 
 ## License
 
-MIT. Issues and reports are welcome, including from Intel Mac and Windows logins that 0.1.0 has not fully accepted yet.
+MIT. Issues and reports are welcome, especially from Intel Macs and native Windows logins, which have not been fully accepted yet.
