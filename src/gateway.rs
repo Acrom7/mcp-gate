@@ -37,6 +37,7 @@ impl Gateway {
             "concurrency_per_backend": 1,
             "max_pending_calls": self.config.max_pending_calls,
             "queue_timeout_seconds": self.config.queue_timeout_seconds,
+            "shared_idle_seconds": self.config.shared_idle_seconds,
             "shared_state": recovery.as_ref().map(|r| &r["state"]),
             "recovery": recovery,
         })
@@ -64,9 +65,18 @@ impl Gateway {
     /// until the worker is dropped, so a dead browser must not wait for the
     /// next call on that same session.
     pub async fn reap_closed_workers(&self) {
-        // Shared recovery is owned by the request that observed the failure.
-        // A background reap would replace that reason and could admit the next call.
-        if self.shared.is_some() {
+        if let Some(slot) = &self.shared {
+            if !self.stopping.load(Ordering::SeqCst)
+                && let Some(seconds) = self.config.shared_idle_seconds
+            {
+                slot.shutdown_if_idle(
+                    Duration::from_secs(seconds),
+                    self.config.max_pending_calls + 1,
+                )
+                .await;
+            }
+            // Failures are still observed by requests; idle shutdown must not
+            // turn an actual crash into successful automatic recovery
             return;
         }
         let slots: Vec<_> = self

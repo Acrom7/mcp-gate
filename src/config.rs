@@ -20,6 +20,9 @@ pub struct Config {
     pub shared_client_roots: SharedClientRoots,
     #[serde(default, skip_serializing_if = "SharedRecovery::is_manual")]
     pub shared_recovery: SharedRecovery,
+    /// Explicitly opt in only when the shared backend may discard its idle state
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shared_idle_seconds: Option<u64>,
     #[serde(default = "default_queue")]
     pub max_pending_calls: usize,
     #[serde(default = "default_startup")]
@@ -35,7 +38,7 @@ pub struct Config {
     #[serde(default = "default_grace")]
     pub disconnect_grace_seconds: u64,
     /// Close a session-owned HTTP session that has had no request for this long
-    /// and shut down its backend. Shared backends are not idle-closed.
+    /// and shut down its backend. Shared backends use `shared_idle_seconds` instead
     #[serde(default = "default_session_idle")]
     pub session_idle_seconds: u64,
     /// When every worker slot is busy, shut down the longest-idle session-owned
@@ -135,6 +138,12 @@ impl Config {
             "Invalid queue limits"
         );
         self.backend.validate()?;
+        ensure!(
+            self.shared_idle_seconds.is_none_or(|seconds| seconds > 0
+                && self.ownership == Ownership::Shared
+                && !self.backend.docker),
+            "Idle shutdown requires a positive timeout and an explicitly reviewed shared, non-Docker backend"
+        );
         ensure!(
             self.shared_recovery == SharedRecovery::Manual
                 || (self.ownership == Ownership::Shared && !self.backend.docker),

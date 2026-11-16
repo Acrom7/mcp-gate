@@ -158,6 +158,7 @@ pub async fn install(prefix: &Path, runtime: &Path, node: &Path, listen: SocketA
         ownership: crate::config::Ownership::Session,
         shared_client_roots: crate::config::SharedClientRoots::Reject,
         shared_recovery: Default::default(),
+        shared_idle_seconds: None,
         max_pending_calls: 16,
         queue_timeout_seconds: 30,
         listen,

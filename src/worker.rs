@@ -176,7 +176,7 @@ impl Worker {
     pub fn closed(&self) -> bool {
         self.resources
             .as_ref()
-            .is_none_or(|r| r.service.is_closed())
+            .is_none_or(|r| r.service.is_closed() || r.service.peer().is_transport_closed())
     }
     pub fn subscribe_progress(
         &self,

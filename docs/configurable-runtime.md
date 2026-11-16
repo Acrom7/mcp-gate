@@ -9,7 +9,16 @@ No live service deployment or client configuration changes are part of developme
 - `session` (default): each HTTP MCP session owns its lazy backend, including its
   roots and logging destination. Closing it does not close another session's backend.
 - `shared` (explicit): the gateway owns one lazy backend across clients. Closing all
-  clients does not shut it down. Shutdown of the gateway reaps it.
+  clients does not shut it down. Gateway shutdown or an explicit shared idle
+  timeout reaps it.
+- `shared_idle_seconds` is an opt-in idle timeout for a reviewed shared, non-Docker
+  API backend whose volatile state may be discarded. For example, `900` stops the
+  backend 15 minutes after the last executable request completes. The default is
+  absent, preserving the existing lifetime. Catalog requests, ping and open SSE
+  streams do not extend this timeout. Active and admitted queued requests prevent
+  shutdown. HTTP sessions remain open; the next executable request starts one
+  fresh backend after owned-process cleanup, without replaying any earlier call.
+  This normal shutdown does not enable crash recovery or clear a failure block.
 - The same command, arguments, environment and working directory use one gateway
   process even when two clients configure it. Session mode still gives each HTTP
   session its own backend. Shared mode still has one backend. The two ownership
@@ -21,7 +30,8 @@ No live service deployment or client configuration changes are part of developme
 - Session-owned backends are closed after `session_idle_seconds` (default 15
   minutes) with no request and no open GET stream. That frees the worker when a
   client initializes per call and never sends HTTP DELETE. A connected GET stream
-  is not idle, so an open recording is kept. Shared backends are not idle-closed.
+  is not idle, so an open recording is kept. Shared backends use the separate,
+  opt-in `shared_idle_seconds` policy above.
 - If the backend process exits, including when its browser is gone and the
   process ends, the worker slot is released without waiting for another call on
   that same session. The session must reconnect; the action is not replayed.

@@ -166,6 +166,24 @@ fn recovery_is_explicit_and_restricted_to_reviewed_shared_processes() {
 }
 
 #[test]
+fn shared_idle_is_opt_in_and_restricted_to_reviewed_shared_processes() {
+    use mcp_gate::config::Ownership;
+    let mut c = config();
+    assert_eq!(c.shared_idle_seconds, None);
+    assert!(!toml::to_string(&c).unwrap().contains("shared_idle_seconds"));
+    c.shared_idle_seconds = Some(900);
+    c.validate().unwrap();
+    c.shared_idle_seconds = Some(0);
+    assert!(c.validate().is_err());
+    c.shared_idle_seconds = Some(900);
+    c.ownership = Ownership::Session;
+    assert!(c.validate().is_err());
+    c.ownership = Ownership::Shared;
+    c.backend.docker = true;
+    assert!(c.validate().is_err());
+}
+
+#[test]
 fn private_environment_references_and_invocation_fingerprint() {
     let dir = tempfile::tempdir().unwrap();
     let secret = dir.path().join("fake-secret");
