@@ -133,9 +133,26 @@ fn edit(before: &[u8], seconds: u64) -> Result<Vec<u8>> {
     let mut document: toml_edit::DocumentMut = std::str::from_utf8(before)?
         .parse()
         .map_err(|_| anyhow::anyhow!("Invalid gateway configuration; values hidden"))?;
-    document.remove("session_idle_seconds");
-    document.remove("shared_idle_seconds");
-    document["idle_seconds"] = toml_edit::value(i64::try_from(seconds)?);
+    let table = document.as_table_mut();
+    // Config validation guarantees at most one of these keys, with a scalar value.
+    let previous = [
+        "idle_seconds",
+        "session_idle_seconds",
+        "shared_idle_seconds",
+    ]
+    .into_iter()
+    .find_map(|name| table.remove_entry(name));
+    let mut key = toml_edit::Key::new("idle_seconds");
+    let mut value = toml_edit::Value::from(i64::try_from(seconds)?);
+    if let Some((old_key, old_value)) = previous {
+        key = key.with_leaf_decor(old_key.leaf_decor().clone());
+        *value.decor_mut() = old_value
+            .as_value()
+            .context("Idle setting must be a scalar")?
+            .decor()
+            .clone();
+    }
+    table.insert_formatted(&key, toml_edit::Item::Value(value));
     Ok(document.to_string().into_bytes())
 }
 

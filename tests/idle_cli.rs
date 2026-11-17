@@ -227,15 +227,24 @@ fn session_eviction_validation_applies_only_when_idle_is_enabled() {
 }
 
 #[test]
-fn legacy_idle_keys_are_migrated_without_rewriting_backend_settings() {
-    for key in ["session_idle_seconds", "shared_idle_seconds"] {
+fn idle_edits_preserve_comments_and_backend_settings_for_all_input_keys() {
+    for key in [
+        "idle_seconds",
+        "session_idle_seconds",
+        "shared_idle_seconds",
+    ] {
         let fixture = Fixture::new("shared");
         let before = String::from_utf8(fixture.bytes()).unwrap();
-        let text = format!("{key} = 900\n{before}");
+        let text =
+            format!("# Preserve this idle note.\n{key} = 900 # Retain this suffix.\n{before}");
         store::atomic(&fixture.record.config(), text.as_bytes()).unwrap();
         fixture.ok(&["idle", "fixture", "1h", "--yes"]);
         let after = String::from_utf8(fixture.bytes()).unwrap();
-        assert!(!after.contains(key));
+        if key != "idle_seconds" {
+            assert!(!after.contains(key));
+        }
+        assert!(after.contains("# Preserve this idle note."));
+        assert!(after.contains("# Retain this suffix."));
         let backend = |text: &str| toml::from_str::<toml::Value>(text).unwrap()["backend"].clone();
         assert_eq!(backend(&after), backend(&before));
         assert_eq!(
