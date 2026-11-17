@@ -41,7 +41,7 @@ For example, one Telegram MCP backend (Java + TDLib) used about 400 MB on a main
 
 - **Lazy backends.** `initialize`, `tools/list`, and the rest of discovery are served from a reviewed catalog snapshot. The upstream process starts when a real call (`tools/call`, `resources/read`, `prompts/get`) needs it.
 - **Shared or session-owned.** A reviewed stateless API can share one serialized backend across clients. A session-owned server (browsers, anything with per-client state) gets its own MCP connection. Shared mode is opt-in and is not safe for an arbitrary browser server.
-- **Idle session backends close.** A session-owned backend closes after 15 minutes with no request and no open GET stream (`session_idle_seconds`, default 900). When every slot is busy, the longest-idle session that has been idle for at least 2 minutes (`session_idle_evict_seconds`, default 120) is stopped to make room. A running call is never evicted, and shared backends are not closed for being idle.
+- **Idle backends close.** [`idle_seconds`](docs/configurable-runtime.md#backend-idle-policy) defaults to 900 for session-owned backends and off for shared ones; `0` disables it. Only executable requests extend the timer. An open GET stream also keeps a session-owned recording alive. Shared non-Docker backends can opt in while keeping HTTP sessions open. When every slot is busy, `session_idle_evict_seconds` (default 120) lets the longest-idle session backend make room. Running calls are never evicted.
 - **No automatic replay.** Actions are never retried or replayed. After a backend crash or a restart, sessions and unfinished work are not restored.
 - **Managed client setup.** `setup` copies the binary into permanent versioned storage (independent of the npx cache), registers a user service (LaunchAgent on macOS, a logon Task Scheduler task on Windows), checks readiness, and only then changes personal client connections. Names and permission settings are preserved. Project files intended for Git are left untouched.
 - **Yours to undo.** `remove` restores direct connections. It does not delete MCP packages, user data, logs, browser artifacts, or old releases.
@@ -63,7 +63,7 @@ npx @matvei-radchenko/mcp-gate@latest status
 npx @matvei-radchenko/mcp-gate@latest remove
 ```
 
-Or install the launcher globally. It provides the same three commands, plus `adopt`:
+Or install the launcher globally. It also provides `adopt` and `idle`:
 
 ```sh
 npm i -g @matvei-radchenko/mcp-gate
@@ -93,6 +93,7 @@ Run `setup` again with a newer or older build to update compatible background se
 | `mcp-gate status` | List client connections. On macOS, also list `local.mcp-gate.*` LaunchAgents. |
 | `mcp-gate remove` | Restore selected connections, or all managed ones with `--all --yes`. |
 | `mcp-gate adopt <name>` | Record an unmanaged `local.mcp-gate.<name>` LaunchAgent in the local registry. Does not restart the gateway, edit client settings, or copy the binary. |
+| `mcp-gate idle <name> [15m\|off]` | Show or set backend idle expiry. Use `--dry-run` to preview or `--yes` to save; prints the required gateway restart command. |
 
 **Setup and remove options**
 
@@ -122,7 +123,7 @@ Claude Code local scope can override a selected project through personal setting
 <details>
 <summary>Non-interactive / agent use</summary>
 
-Non-interactive use never prompts. Pass `--json` for one JSON document on stdout, and `--dry-run` to preview. Applying changes from an agent requires explicit `--client` and `--server` with `--yes`, or `remove --all --yes`. Argument errors are JSON when `--json` is present. Follow [docs/agents.md](docs/agents.md).
+Non-interactive use never prompts. Pass `--json` for one JSON document on stdout, and `--dry-run` to preview. Setup/remove changes require explicit `--client` and `--server` with `--yes`, or `remove --all --yes`. `idle <name> <duration> --yes` saves only that gateway's idle policy. Argument errors are JSON when `--json` is present. Follow [docs/agents.md](docs/agents.md).
 
 ```sh
 mcp-gate status --json

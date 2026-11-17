@@ -126,7 +126,7 @@ state_dir = {state:?}
 max_workers = {max_workers}
 max_sessions = 8
 disconnect_grace_seconds = 2
-session_idle_seconds = {idle_seconds}
+idle_seconds = {idle_seconds}
 session_idle_evict_seconds = {evict_seconds}
 startup_timeout_seconds = 30
 call_timeout_seconds = 60
@@ -156,6 +156,9 @@ MOCK_CANCEL_FILE = {cancel_file:?}
             let table = value.as_table_mut().unwrap();
             table.insert("format_version".into(), 2.into());
             table.insert("ownership".into(), ownership.into());
+            if idle.is_none() {
+                table.remove("idle_seconds");
+            }
             table.insert("max_pending_calls".into(), (pending as i64).into());
             table.insert("call_timeout_seconds".into(), (call_timeout as i64).into());
             table.insert(
