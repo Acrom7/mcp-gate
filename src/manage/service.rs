@@ -206,6 +206,41 @@ pub fn installed(record: &Record) -> Result<bool> {
     #[cfg(not(any(target_os = "macos", windows)))]
     anyhow::bail!("Unsupported service platform: {}", record.label)
 }
+
+/// Render an explicit operator action only; changing policy never restarts a
+/// service or interrupts its calls. Quote registry values for the platform shell.
+pub fn restart_command(record: &Record) -> String {
+    #[cfg(target_os = "macos")]
+    {
+        // SAFETY: geteuid has no pointer arguments or preconditions.
+        let uid = unsafe { libc::geteuid() };
+        format!(
+            "launchctl kickstart -k {}",
+            shell_literal(&format!("gui/{uid}/{}", record.label))
+        )
+    }
+    #[cfg(windows)]
+    {
+        let label = shell_literal(&record.label);
+        format!("schtasks.exe /End /TN {label}; schtasks.exe /Run /TN {label}")
+    }
+    #[cfg(not(any(target_os = "macos", windows)))]
+    {
+        format!(
+            "stop the gateway, then run {} serve --config {}",
+            shell_literal(&record.binary.to_string_lossy()),
+            shell_literal(&record.config().to_string_lossy())
+        )
+    }
+}
+
+fn shell_literal(value: &str) -> String {
+    #[cfg(windows)]
+    let escaped = value.replace('\'', "''"); // PowerShell single-quoted string.
+    #[cfg(not(windows))]
+    let escaped = value.replace('\'', "'\\''");
+    format!("'{escaped}'")
+}
 #[cfg(windows)]
 fn windows_xml(record: &Record) -> Result<String> {
     let identity = Command::new("whoami.exe").output()?;

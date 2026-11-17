@@ -3,6 +3,7 @@ mod agents;
 mod choose;
 mod context;
 mod health;
+mod idle;
 mod inventory;
 mod labels;
 pub mod launch;
@@ -20,8 +21,9 @@ mod ui;
 mod upgrade;
 mod wizard;
 use crate::clients::Client;
-use anyhow::{Result, ensure};
+use anyhow::Result;
 use clap::Args;
+pub use idle::Idle;
 use std::path::PathBuf;
 
 #[derive(Args, Default, Clone)]
@@ -97,6 +99,9 @@ pub async fn remove(mut options: Selection, all: bool, name: Option<String>) -> 
 pub async fn adopt(name: String, dry_run: bool, json: bool) -> Result<()> {
     adopt::run(name, dry_run, json).await
 }
+pub fn idle(options: Idle) -> Result<()> {
+    idle::run(options)
+}
 
 pub fn canceled(error: &anyhow::Error) -> bool {
     error.is::<ui::Canceled>()
@@ -146,7 +151,7 @@ pub(crate) fn matches_binding(options: &Selection, binding: &crate::clients::Bin
 /// Fault injection exists only in the test-feature binary, never npm artifacts.
 pub(crate) fn checkpoint(stage: &str) -> Result<()> {
     #[cfg(feature = "test-backend")]
-    ensure!(
+    anyhow::ensure!(
         std::env::var("MCP_GATE_TEST_FAIL").as_deref() != Ok(stage),
         "Injected fixture failure at {stage}"
     );
