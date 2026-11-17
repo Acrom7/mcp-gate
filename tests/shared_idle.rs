@@ -12,7 +12,7 @@ async fn idle_gateway() -> Harness {
     let mut harness = Harness::generic("shared", 4, 15, 10).await;
     harness.stop();
     let mut config = mcp_gate::config::Config::load(&harness.config).unwrap();
-    config.shared_idle_seconds = Some(1);
+    config.idle_seconds = Some(1);
     harness.restart_with_config(config).await;
     harness
 }

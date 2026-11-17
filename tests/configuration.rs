@@ -123,19 +123,11 @@ fn config() -> Config {
 fn strict_version_profile_and_capacity_validation() {
     let original = config();
     original.validate().unwrap();
-    for field in [
-        "format_version",
-        "max_workers",
-        "queue_timeout_seconds",
-        "session_idle_seconds",
-    ] {
+    for field in ["format_version", "max_workers", "queue_timeout_seconds"] {
         let mut value = toml::Value::try_from(&original).unwrap();
         value[field] = 0.into();
         assert!(value.try_into::<Config>().unwrap().validate().is_err());
     }
-    let mut eviction = toml::Value::try_from(&original).unwrap();
-    eviction["session_idle_evict_seconds"] = 10_000.into();
-    assert!(eviction.try_into::<Config>().unwrap().validate().is_err());
     let text = toml::to_string(&original).unwrap();
     assert!(toml::from_str::<Config>(&format!("typo = true\n{text}")).is_err());
     let mut chrome = backend();
@@ -166,20 +158,85 @@ fn recovery_is_explicit_and_restricted_to_reviewed_shared_processes() {
 }
 
 #[test]
-fn shared_idle_is_opt_in_and_restricted_to_reviewed_shared_processes() {
+fn idle_defaults_depend_on_ownership_and_shared_docker_cannot_enable_it() {
+    use mcp_gate::config::Ownership;
+    use std::time::Duration;
+    let mut c = config();
+    assert_eq!(c.idle_seconds, None);
+    assert_eq!(c.idle_timeout(), None);
+    let serialized = toml::Value::try_from(&c).unwrap();
+    assert!(serialized.get("idle_seconds").is_none());
+    c.idle_seconds = Some(900);
+    c.validate().unwrap();
+    assert_eq!(c.idle_timeout(), Some(Duration::from_secs(900)));
+    c.backend.docker = true;
+    c.backend.args = vec!["run".into(), "-i".into(), "fixture".into()];
+    assert!(
+        c.validate()
+            .unwrap_err()
+            .to_string()
+            .contains("shared Docker")
+    );
+    for idle in [None, Some(0)] {
+        c.idle_seconds = idle;
+        c.validate().unwrap();
+        assert_eq!(c.idle_timeout(), None);
+    }
+    c.ownership = Ownership::Session;
+    c.idle_seconds = None;
+    c.validate().unwrap();
+    assert_eq!(c.idle_timeout(), Some(Duration::from_secs(900)));
+}
+
+#[test]
+fn idle_aliases_round_trip_only_the_canonical_key_and_reject_duplicates() {
+    let original = toml::to_string(&config()).unwrap();
+    let keys = [
+        "idle_seconds",
+        "session_idle_seconds",
+        "shared_idle_seconds",
+    ];
+    for key in keys {
+        for (input, seconds) in [("900", 900), ("0", 0), ("\"off\"", 0)] {
+            let text = format!("{key} = {input}\n{original}");
+            let c: Config = toml::from_str(&text).unwrap();
+            c.validate().unwrap();
+            assert_eq!(c.idle_seconds, Some(seconds));
+            assert_eq!(c.idle_timeout().is_none(), seconds == 0);
+            let serialized = toml::to_string(&c).unwrap();
+            assert!(serialized.contains(&format!("idle_seconds = {seconds}\n")));
+            for alias in &keys[1..] {
+                assert!(!serialized.contains(alias));
+            }
+            let loaded: Config = toml::from_str(&serialized).unwrap();
+            assert_eq!(loaded.idle_seconds, c.idle_seconds);
+        }
+        for duplicate in keys {
+            let text = format!("{key} = 900\n{duplicate} = 900\n{original}");
+            assert!(toml::from_str::<Config>(&text).is_err());
+        }
+    }
+    for invalid in ["-1", "1.5", "true", "\"15m\"", "\"never\""] {
+        let text = format!("idle_seconds = {invalid}\n{original}");
+        assert!(toml::from_str::<Config>(&text).is_err());
+    }
+}
+
+#[test]
+fn eviction_is_session_only_and_remains_available_with_idle_disabled() {
     use mcp_gate::config::Ownership;
     let mut c = config();
-    assert_eq!(c.shared_idle_seconds, None);
-    assert!(!toml::to_string(&c).unwrap().contains("shared_idle_seconds"));
-    c.shared_idle_seconds = Some(900);
-    c.validate().unwrap();
-    c.shared_idle_seconds = Some(0);
-    assert!(c.validate().is_err());
-    c.shared_idle_seconds = Some(900);
+    c.session_idle_evict_seconds = 10_000;
+    c.validate().unwrap(); // Shared ownership ignores session eviction.
     c.ownership = Ownership::Session;
     assert!(c.validate().is_err());
-    c.ownership = Ownership::Shared;
-    c.backend.docker = true;
+    c.idle_seconds = Some(0);
+    c.validate().unwrap();
+    assert_eq!(c.idle_timeout(), None);
+    c.idle_seconds = Some(120);
+    c.session_idle_evict_seconds = 120;
+    c.validate().unwrap();
+    c.session_idle_evict_seconds = 121;
     assert!(c.validate().is_err());
 }
 

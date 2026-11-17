@@ -113,9 +113,9 @@ impl Server {
                     clean_state.leases.lock().unwrap().remove(&id);
                     tracing::info!("disconnected session expired");
                 }
-                if clean_state.gateway.config.ownership == Ownership::Session {
-                    let idle_for =
-                        Duration::from_secs(clean_state.gateway.config.session_idle_seconds);
+                if clean_state.gateway.config.ownership == Ownership::Session
+                    && let Some(idle_for) = clean_state.gateway.config.idle_timeout()
+                {
                     let idle: Vec<_> = {
                         let leases = clean_state.leases.lock().unwrap();
                         leases
