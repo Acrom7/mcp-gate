@@ -69,6 +69,21 @@ that look like secrets, including `--token=...`, become `<hidden>`. Environment
 values, headers and tokens stay hidden. `--yes` requires both `--client` and
 `--server`. The exception is `remove --all --yes`.
 
+`idle` names one managed gateway rather than selecting client settings:
+
+```sh
+mcp-gate idle NAME --json
+mcp-gate idle NAME 15m --dry-run --json
+mcp-gate idle NAME off --yes --json
+```
+
+Only use `--yes` after the user chooses that gateway and policy. Whole seconds and
+integer `s`/`m`/`h` durations are accepted; `off` and `0` disable expiry. JSON reports
+`idle_seconds` (0 when disabled), `previous_idle_seconds`, `uses_ownership_default`,
+and `restart_command`. The command saves only the gateway config and never restarts
+its process. Obtain authorization for the printed restart separately; current
+actions should finish first. See the [idle contract](configurable-runtime.md#backend-idle-policy).
+
 `check --config PATH` prints a one-line summary. `check --config PATH --json`
 prints `{"format_version":1,"phase":"ok",...}`.
 

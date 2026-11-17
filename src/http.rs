@@ -1,16 +1,19 @@
 //! Authentication, DNS-rebinding protection and HTTP connection leases.
 //! MCP framing, negotiation, SSE and session IDs belong to the official SDK.
-use crate::{config::Ownership, gateway::Gateway};
+mod lease;
+
+use crate::gateway::Gateway;
 use axum::{
     Router,
-    body::{Body, Bytes},
+    body::Body,
     extract::{Request, State},
     http::{Method, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::{get, post},
 };
-use http_body::{Body as HttpBody, Frame, SizeHint};
+pub(crate) use lease::Activity;
+use lease::{ConnectionGuard, Lease, LeaseRef, TrackedBody};
 use rmcp::transport::streamable_http_server::{
     StreamableHttpServerConfig, StreamableHttpService,
     session::{SessionManager, local::LocalSessionManager},
@@ -18,25 +21,13 @@ use rmcp::transport::streamable_http_server::{
 use serde_json::json;
 use std::{
     collections::HashMap,
-    pin::Pin,
     sync::{Arc, Mutex},
-    task::{Context, Poll},
     time::{Duration, Instant},
 };
 use subtle::ConstantTimeEq;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio_util::sync::CancellationToken;
 
-struct Lease {
-    streams: usize,
-    requests: usize,
-    disconnected: Option<Instant>,
-    last_activity: Instant,
-    closing: bool,
-    active: Arc<std::sync::atomic::AtomicUsize>,
-    _capacity: Arc<OwnedSemaphorePermit>,
-}
-type LeaseRef = Arc<Mutex<Lease>>;
 #[derive(Clone)]
 struct HttpState {
     gateway: Arc<Gateway>,
@@ -55,9 +46,8 @@ impl Server {
     pub fn new(gateway: Arc<Gateway>, token: String) -> Self {
         let cancellation = CancellationToken::new();
         let mut manager = LocalSessionManager::default();
-        // A connected GET stream may hold a recording, so it is not idle.
-        // A session-owned backend with no request and no stream is closed after
-        // session_idle_seconds. Shared backends are not closed that way.
+        // The lease policy owns session expiry, including the open GET stream
+        // exception. Disable the SDK's independent discovery-based lifetime.
         manager.session_config.keep_alive = None;
         manager.session_config.completed_cache_ttl = Duration::from_secs(15);
         let manager = Arc::new(manager);
@@ -83,65 +73,7 @@ impl Server {
             let mut tick = tokio::time::interval(Duration::from_secs(1));
             loop {
                 tokio::select! { _ = clean_cancel.cancelled() => break, _ = tick.tick() => {} }
-                let expired: Vec<_> = {
-                    let leases = clean_state.leases.lock().unwrap();
-                    leases
-                        .iter()
-                        .filter_map(|(id, lease)| {
-                            let mut lease = lease.lock().unwrap();
-                            if !lease.closing
-                                && lease.streams == 0
-                                && lease.requests == 0
-                                && lease.active.load(std::sync::atomic::Ordering::SeqCst) == 0
-                                && lease.disconnected.is_some_and(|t| {
-                                    t.elapsed()
-                                        >= Duration::from_secs(
-                                            clean_state.gateway.config.disconnect_grace_seconds,
-                                        )
-                                })
-                            {
-                                lease.closing = true;
-                                Some(id.clone())
-                            } else {
-                                None
-                            }
-                        })
-                        .collect()
-                };
-                for id in expired {
-                    let _ = clean_manager.close_session(&id.clone().into()).await;
-                    clean_state.leases.lock().unwrap().remove(&id);
-                    tracing::info!("disconnected session expired");
-                }
-                if clean_state.gateway.config.ownership == Ownership::Session {
-                    let idle_for =
-                        Duration::from_secs(clean_state.gateway.config.session_idle_seconds);
-                    let idle: Vec<_> = {
-                        let leases = clean_state.leases.lock().unwrap();
-                        leases
-                            .iter()
-                            .filter_map(|(id, lease)| {
-                                let mut lease = lease.lock().unwrap();
-                                if !lease.closing
-                                    && lease.streams == 0
-                                    && lease.requests == 0
-                                    && lease.active.load(std::sync::atomic::Ordering::SeqCst) == 0
-                                    && lease.last_activity.elapsed() >= idle_for
-                                {
-                                    lease.closing = true;
-                                    Some(id.clone())
-                                } else {
-                                    None
-                                }
-                            })
-                            .collect()
-                    };
-                    for id in idle {
-                        let _ = clean_manager.close_session(&id.clone().into()).await;
-                        clean_state.leases.lock().unwrap().remove(&id);
-                        tracing::info!("idle session closed");
-                    }
-                }
+                lease::reap_sessions(&clean_state, &clean_manager).await;
                 clean_state.gateway.reap_closed_workers().await;
             }
         });
@@ -193,7 +125,7 @@ async fn health(State(state): State<HttpState>) -> impl IntoResponse {
         .map(|(id, l)| {
             let l = l.lock().unwrap();
             json!({"id":id,"streams":l.streams,"http_requests":l.requests,
-            "active_calls":l.active.load(std::sync::atomic::Ordering::SeqCst),
+            "active_calls":l.active,
             "disconnected_seconds":l.disconnected.map(|t|t.elapsed().as_secs())})
         })
         .collect();
@@ -266,10 +198,9 @@ async fn guard(State(state): State<HttpState>, mut req: Request, next: Next) -> 
             if value.closing {
                 return StatusCode::NOT_FOUND.into_response();
             }
-            req.extensions_mut()
-                .insert(Activity(value.active.clone(), value._capacity.clone()));
-            value.last_activity = Instant::now();
+            req.extensions_mut().insert(Activity(lease.clone()));
             if method == Method::GET {
+                value.last_activity = Instant::now();
                 value.streams += 1;
                 value.disconnected = None;
             } else {
@@ -311,8 +242,8 @@ async fn guard(State(state): State<HttpState>, mut req: Request, next: Next) -> 
                 disconnected: None,
                 last_activity: Instant::now(),
                 closing: false,
-                active: Arc::default(),
-                _capacity: Arc::new(permit),
+                active: 0,
+                _capacity: permit,
             })),
         );
     }
@@ -330,69 +261,4 @@ async fn guard(State(state): State<HttpState>, mut req: Request, next: Next) -> 
             _guard: body_guard,
         }),
     )
-}
-struct ConnectionGuard {
-    lease: LeaseRef,
-    stream: bool,
-}
-#[derive(Clone)]
-pub(crate) struct Activity(
-    Arc<std::sync::atomic::AtomicUsize>,
-    Arc<OwnedSemaphorePermit>,
-);
-impl Activity {
-    pub fn start(&self) -> ActiveCall {
-        self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        ActiveCall(self.0.clone(), self.1.clone())
-    }
-}
-pub(crate) struct ActiveCall(
-    Arc<std::sync::atomic::AtomicUsize>,
-    #[allow(
-        dead_code,
-        reason = "Permit lifetime covers executable handlers after HTTP disconnect"
-    )]
-    Arc<OwnedSemaphorePermit>,
-);
-impl Drop for ActiveCall {
-    fn drop(&mut self) {
-        self.0.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
-    }
-}
-impl Drop for ConnectionGuard {
-    fn drop(&mut self) {
-        let mut value = self.lease.lock().unwrap();
-        value.last_activity = Instant::now();
-        if self.stream {
-            value.streams -= 1;
-            if value.streams == 0 {
-                value.disconnected = Some(Instant::now());
-            }
-        } else {
-            value.requests -= 1;
-            if value.disconnected.is_some() {
-                value.disconnected = Some(Instant::now());
-            }
-        }
-    }
-}
-struct TrackedBody {
-    body: Body,
-    _guard: Option<ConnectionGuard>,
-}
-impl HttpBody for TrackedBody {
-    type Data = Bytes;
-    type Error = axum::Error;
-    fn poll_frame(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Option<Result<Frame<Bytes>, Self::Error>>> {
-        Pin::new(&mut self.body).poll_frame(cx)
-    }
-    fn is_end_stream(&self) -> bool {
-        self.body.is_end_stream()
-    }
-    fn size_hint(&self) -> SizeHint {
-        self.body.size_hint()
-    }
 }

@@ -141,6 +141,27 @@ impl BackendSlot {
         }
     }
 
+    /// Normal idle shutdown preserves the lifecycle and every HTTP session
+    pub async fn shutdown_if_idle(&self, minimum: Duration, admission_capacity: usize) -> bool {
+        let Ok(mut guard) = self.worker.try_lock() else {
+            return false;
+        };
+        if self.idle() < minimum
+            || self.admission.available_permits() != admission_capacity
+            || self.admit(self.generation()).is_err()
+            || guard.as_ref().is_none_or(Worker::closed)
+        {
+            return false;
+        }
+        // Keep the execution lock through cleanup. A new request may queue,
+        // then start one fresh worker only after its predecessor is fully gone
+        if let Some(worker) = guard.take() {
+            worker.shutdown().await;
+        }
+        tracing::info!("stopped idle shared backend; next executable request starts it again");
+        true
+    }
+
     pub fn generation(&self) -> u64 {
         self.lifecycle.lock().unwrap().generation
     }

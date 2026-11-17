@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     net::SocketAddr,
     path::{Path, PathBuf},
+    time::Duration,
 };
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -20,6 +21,20 @@ pub struct Config {
     pub shared_client_roots: SharedClientRoots,
     #[serde(default, skip_serializing_if = "SharedRecovery::is_manual")]
     pub shared_recovery: SharedRecovery,
+    /// Backend lifetime without executable requests (tools/call, resources/read,
+    /// prompts/get), measured from completion. Discovery and ping do not extend
+    /// it. Active/admitted queued work prevents shutdown. Session ownership also
+    /// keeps an open GET stream alive for recordings; expiry closes its HTTP
+    /// session. Shared expiry keeps HTTP sessions and never clears failure state.
+    /// Omitted selects the ownership default (session: 900, shared: off); 0 is off.
+    #[serde(
+        default,
+        alias = "session_idle_seconds",
+        alias = "shared_idle_seconds",
+        deserialize_with = "deserialize_idle",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub idle_seconds: Option<u64>,
     #[serde(default = "default_queue")]
     pub max_pending_calls: usize,
     #[serde(default = "default_startup")]
@@ -34,10 +49,6 @@ pub struct Config {
     pub max_sessions: usize,
     #[serde(default = "default_grace")]
     pub disconnect_grace_seconds: u64,
-    /// Close a session-owned HTTP session that has had no request for this long
-    /// and shut down its backend. Shared backends are not idle-closed.
-    #[serde(default = "default_session_idle")]
-    pub session_idle_seconds: u64,
     /// When every worker slot is busy, shut down the longest-idle session-owned
     /// backend that has been idle at least this long. Zero evicts any idle one.
     #[serde(default = "default_session_evict")]
@@ -93,9 +104,6 @@ fn default_sessions() -> usize {
 fn default_grace() -> u64 {
     60
 }
-fn default_session_idle() -> u64 {
-    15 * 60
-}
 fn default_session_evict() -> u64 {
     2 * 60
 }
@@ -106,7 +114,37 @@ fn default_call() -> u64 {
     300
 }
 
+fn deserialize_idle<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<u64>, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Input {
+        Seconds(u64),
+        Off(Off),
+    }
+    #[derive(Deserialize)]
+    #[serde(rename_all = "lowercase")]
+    enum Off {
+        Off,
+    }
+    Ok(Some(match Input::deserialize(deserializer)? {
+        Input::Seconds(seconds) => seconds,
+        Input::Off(_) => 0,
+    }))
+}
+
 impl Config {
+    /// Resolve an omitted value only after ownership is known. Disabled timers
+    /// have no deadline; session capacity eviction remains independent.
+    pub fn idle_timeout(&self) -> Option<Duration> {
+        let seconds = self.idle_seconds.unwrap_or(match self.ownership {
+            Ownership::Session => 900,
+            Ownership::Shared => 0,
+        });
+        (seconds > 0).then(|| Duration::from_secs(seconds))
+    }
+
     pub fn load(path: &Path) -> Result<Self> {
         let value: Self = toml::from_str(&std::fs::read_to_string(path)?)
             .map_err(|_| anyhow::anyhow!("Invalid gateway configuration; values hidden"))?;
@@ -136,6 +174,12 @@ impl Config {
         );
         self.backend.validate()?;
         ensure!(
+            self.ownership != Ownership::Shared
+                || !self.backend.docker
+                || self.idle_timeout().is_none(),
+            "Cannot enable idle_seconds for a shared Docker backend; use idle_seconds = 0 (off)"
+        );
+        ensure!(
             self.shared_recovery == SharedRecovery::Manual
                 || (self.ownership == Ownership::Shared && !self.backend.docker),
             "Automatic recovery requires an explicitly reviewed shared, non-Docker backend"
@@ -156,13 +200,15 @@ impl Config {
         ensure!(
             self.startup_timeout_seconds > 0
                 && self.call_timeout_seconds > 0
-                && self.disconnect_grace_seconds > 0
-                && self.session_idle_seconds > 0,
+                && self.disconnect_grace_seconds > 0,
             "Timeouts must be positive"
         );
         ensure!(
-            self.session_idle_evict_seconds <= self.session_idle_seconds,
-            "Idle eviction cannot wait longer than the session idle timeout"
+            self.ownership != Ownership::Session
+                || self.idle_timeout().is_none_or(|idle| {
+                    Duration::from_secs(self.session_idle_evict_seconds) <= idle
+                }),
+            "session_idle_evict_seconds cannot exceed idle_seconds when session idle is enabled"
         );
         for p in [&self.token_file, &self.catalog_file, &self.state_dir] {
             ensure!(

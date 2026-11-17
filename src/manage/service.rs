@@ -1,8 +1,11 @@
 //! Per-user service registration. Never installs a system service or kills a client.
 use super::store::Record;
-use anyhow::{Context, Result, ensure};
+use anyhow::Result;
+#[cfg(any(target_os = "macos", windows))]
+use anyhow::{Context, ensure};
 #[cfg(target_os = "macos")]
 use std::path::PathBuf;
+#[cfg(any(target_os = "macos", windows))]
 use std::process::Command;
 
 #[cfg(target_os = "macos")]
@@ -16,6 +19,7 @@ fn domain() -> String {
     // SAFETY: geteuid has no pointer arguments or preconditions.
     format!("gui/{}", unsafe { libc::geteuid() })
 }
+#[cfg(any(target_os = "macos", windows))]
 fn run(command: &mut Command) -> Result<()> {
     let output = command.output().context("Cannot run service manager")?;
     ensure!(
@@ -114,6 +118,7 @@ pub fn register(record: &Record) -> Result<()> {
     }
     #[cfg(not(any(target_os = "macos", windows)))]
     anyhow::bail!("Unsupported service platform: {}", record.label);
+    #[cfg(any(target_os = "macos", windows))]
     Ok(())
 }
 pub fn unregister(record: &Record) -> Result<()> {
@@ -146,15 +151,18 @@ pub fn unregister(record: &Record) -> Result<()> {
     }
     #[cfg(not(any(target_os = "macos", windows)))]
     anyhow::bail!("Unsupported service platform: {}", record.label);
-    // The registry can briefly retain an exited job after the stop command has
-    // returned. Replacement must not race that asynchronous removal.
-    for _ in 0..100 {
-        if !installed(record)? {
-            return Ok(());
+    #[cfg(any(target_os = "macos", windows))]
+    {
+        // The registry can briefly retain an exited job after the stop command has
+        // returned. Replacement must not race that asynchronous removal.
+        for _ in 0..100 {
+            if !installed(record)? {
+                return Ok(());
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
         }
-        std::thread::sleep(std::time::Duration::from_millis(100));
+        anyhow::bail!("Service removal is still pending in the user service manager")
     }
-    anyhow::bail!("Service removal is still pending in the user service manager")
 }
 /// Another installation already owns this per-user service name.
 pub fn label_in_use(error: &anyhow::Error) -> bool {
@@ -197,6 +205,41 @@ pub fn installed(record: &Record) -> Result<bool> {
         .success());
     #[cfg(not(any(target_os = "macos", windows)))]
     anyhow::bail!("Unsupported service platform: {}", record.label)
+}
+
+/// Render an explicit operator action only; changing policy never restarts a
+/// service or interrupts its calls. Quote registry values for the platform shell.
+pub fn restart_command(record: &Record) -> String {
+    #[cfg(target_os = "macos")]
+    {
+        // SAFETY: geteuid has no pointer arguments or preconditions.
+        let uid = unsafe { libc::geteuid() };
+        format!(
+            "launchctl kickstart -k {}",
+            shell_literal(&format!("gui/{uid}/{}", record.label))
+        )
+    }
+    #[cfg(windows)]
+    {
+        let label = shell_literal(&record.label);
+        format!("schtasks.exe /End /TN {label}; schtasks.exe /Run /TN {label}")
+    }
+    #[cfg(not(any(target_os = "macos", windows)))]
+    {
+        format!(
+            "stop the gateway, then run {} serve --config {}",
+            shell_literal(&record.binary.to_string_lossy()),
+            shell_literal(&record.config().to_string_lossy())
+        )
+    }
+}
+
+fn shell_literal(value: &str) -> String {
+    #[cfg(windows)]
+    let escaped = value.replace('\'', "''"); // PowerShell single-quoted string.
+    #[cfg(not(windows))]
+    let escaped = value.replace('\'', "'\\''");
+    format!("'{escaped}'")
 }
 #[cfg(windows)]
 fn windows_xml(record: &Record) -> Result<String> {
