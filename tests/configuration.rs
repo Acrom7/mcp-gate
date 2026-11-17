@@ -223,6 +223,38 @@ fn idle_aliases_round_trip_only_the_canonical_key_and_reject_duplicates() {
 }
 
 #[test]
+fn backend_replacement_preserves_session_idle_settings() {
+    use mcp_gate::config::Ownership;
+    use std::time::Duration;
+    let mut original = config();
+    original.ownership = Ownership::Session;
+    original.session_idle_evict_seconds = 1;
+    let original = toml::to_string(&original).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("config.toml");
+    for (setting, seconds, timeout) in [
+        ("", None, Some(900)),
+        ("3", Some(3), Some(3)),
+        ("0", Some(0), None),
+        ("\"off\"", Some(0), None),
+    ] {
+        let text = if setting.is_empty() {
+            original.clone()
+        } else {
+            format!("idle_seconds = {setting}\n{original}")
+        };
+        std::fs::write(&path, text).unwrap();
+        let mut c = Config::load(&path).unwrap();
+        c.backend.env.insert("MOCK_CORE_CATALOG".into(), "1".into());
+        std::fs::write(&path, toml::to_string(&c).unwrap()).unwrap();
+        let loaded = Config::load(&path).unwrap();
+        assert_eq!(loaded.idle_seconds, seconds);
+        assert_eq!(loaded.idle_timeout(), timeout.map(Duration::from_secs));
+        assert_eq!(loaded.session_idle_evict_seconds, 1);
+    }
+}
+
+#[test]
 fn eviction_is_session_only_and_remains_available_with_idle_disabled() {
     use mcp_gate::config::Ownership;
     let mut c = config();

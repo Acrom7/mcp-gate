@@ -4,14 +4,23 @@
     reason = "Shared integration fixtures are exercised by different suites"
 )]
 mod support;
+use mcp_gate::config::Config;
 use reqwest::{Method, StatusCode};
 use serde_json::json;
 use std::{sync::atomic::Ordering, time::Duration};
 use support::*;
 
+async fn core_session_limits(idle: u64) -> Harness {
+    let mut h = Harness::session_limits(1, idle, 1).await;
+    let mut backend = Config::load(&h.config).unwrap().backend;
+    backend.env.insert("MOCK_CORE_CATALOG".into(), "1".into());
+    h.replace_backend(backend).await;
+    h
+}
+
 #[tokio::test]
 async fn discovery_and_ping_do_not_keep_session_backend_alive() {
-    let mut h = Harness::session_limits(1, 1, 1).await;
+    let mut h = core_session_limits(1).await;
     let a = h.session().await;
     a.call("state", json!({})).await;
     let deadline = tokio::time::Instant::now() + Duration::from_secs(4);
@@ -26,7 +35,8 @@ async fn discovery_and_ping_do_not_keep_session_backend_alive() {
                 break;
             }
             assert!(response.status().is_success());
-            a.read_message(response, Some(100)).await;
+            let message = a.read_message(response, Some(100)).await;
+            assert!(message["result"].is_object(), "{method}: {message}");
         }
         if closed {
             break;
@@ -43,7 +53,7 @@ async fn discovery_and_ping_do_not_keep_session_backend_alive() {
 
 #[tokio::test]
 async fn every_executable_operation_extends_session_idle_from_completion() {
-    let mut h = Harness::session_limits(1, 3, 1).await;
+    let mut h = core_session_limits(3).await;
     let a = h.session().await;
     a.call("state", json!({"value":"kept"})).await;
     tokio::time::sleep(Duration::from_millis(1100)).await;
