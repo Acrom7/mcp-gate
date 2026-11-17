@@ -9,16 +9,8 @@ No live service deployment or client configuration changes are part of developme
 - `session` (default): each HTTP MCP session owns its lazy backend, including its
   roots and logging destination. Closing it does not close another session's backend.
 - `shared` (explicit): the gateway owns one lazy backend across clients. Closing all
-  clients does not shut it down. Gateway shutdown or an explicit shared idle
+  clients does not shut it down. Gateway shutdown or an explicit backend idle
   timeout reaps it.
-- `shared_idle_seconds` is an opt-in idle timeout for a reviewed shared, non-Docker
-  API backend whose volatile state may be discarded. For example, `900` stops the
-  backend 15 minutes after the last executable request completes. The default is
-  absent, preserving the existing lifetime. Catalog requests, ping and open SSE
-  streams do not extend this timeout. Active and admitted queued requests prevent
-  shutdown. HTTP sessions remain open; the next executable request starts one
-  fresh backend after owned-process cleanup, without replaying any earlier call.
-  This normal shutdown does not enable crash recovery or clear a failure block.
 - The same command, arguments, environment and working directory use one gateway
   process even when two clients configure it. Session mode still gives each HTTP
   session its own backend. Shared mode still has one backend. The two ownership
@@ -27,25 +19,101 @@ No live service deployment or client configuration changes are part of developme
   bounds additional admitted calls, `queue_timeout_seconds` bounds lock waiting.
   Zero pending calls means fail-fast while busy. Cancelled or expired queued calls
   do not reach the backend. These limits are not OS memory quotas.
-- Session-owned backends are closed after `session_idle_seconds` (default 15
-  minutes) with no request and no open GET stream. That frees the worker when a
-  client initializes per call and never sends HTTP DELETE. A connected GET stream
-  is not idle, so an open recording is kept. Shared backends use the separate,
-  opt-in `shared_idle_seconds` policy above.
 - If the backend process exits, including when its browser is gone and the
   process ends, the worker slot is released without waiting for another call on
   that same session. The session must reconnect; the action is not replayed.
 - When every worker slot is busy, the longest-idle session-owned backend that
   has been idle for at least `session_idle_evict_seconds` (default 2 minutes;
   zero means any idle one) is shut down so the new call can start. A call that
-  is still running is not evicted. Existing disconnect grace still closes HTTP
-  sessions after a lost GET when no tool call is active.
+  is still running is not evicted. This capacity policy is session-only, remains
+  available with idle expiry disabled, and ignores the open GET stream exception.
+  Existing disconnect grace still closes HTTP sessions after a lost GET when no
+  executable call is active.
 - An active shared call cancelled/timed out with uncertain outcome poisons the shared
   slot and closes its process. Waiting/new clients receive an error; they cannot
   silently spawn a replacement. An operator must restart that gateway. This trades
   availability for preserving serial execution and avoiding repeated side effects.
 - A backend crash also fails its slot. Session mode can start fresh through a new
   HTTP session; shared mode requires gateway restart. The action is never replayed.
+
+## Backend idle policy
+
+`idle_seconds` is the single backend idle timeout for both ownerships. Omit it to
+use the ownership default: **900 seconds for session-owned**, **off for shared**.
+Use a positive integer for seconds, or **`idle_seconds = 0` to disable**. The input
+`idle_seconds = "off"` is also accepted and serialized back as `0`. Omitted defaults
+stay omitted when saving a config. A disabled timer has no deadline; it does not
+create a zero-duration polling loop.
+
+Only executable requests (`tools/call`, `resources/read`, `prompts/get`) extend the
+timer, starting a fresh interval when they complete. Initialization, discovery
+(`tools/list`, `resources/list`, `resources/templates/list`, `prompts/list`), ping,
+and notifications do not. Active and admitted queued executable requests prevent
+shutdown. An in-flight HTTP response also finishes before its session is closed.
+Session-owned discovery previously reset expiry; it now follows this same rule.
+
+The ownership-specific consequences are:
+
+- **Session-owned:** expiry closes the HTTP session and its backend together;
+  there is no separate HTTP idle setting. An open GET/SSE stream keeps the session
+  alive for browser recordings, and closing that stream starts a fresh idle
+  interval. With idle disabled, DELETE, disconnect grace after a lost GET, backend
+  exit, capacity eviction and gateway shutdown still apply. A client that never
+  opens GET must DELETE or explicitly close its session if it wants to release it.
+- **Shared:** enabling idle is an explicit review decision that volatile backend
+  state may be discarded. Shared Docker backends cannot enable it; omitted or `0`
+  is valid for Docker. Open SSE streams do not extend shared idle. Expiry closes
+  only the backend, keeping HTTP sessions; the next executable request starts one
+  fresh backend after owned-process cleanup. Idle shutdown never replays actions,
+  hides an external process exit, enables crash recovery or clears a failure block.
+
+`session_idle_evict_seconds` keeps its name and session-only meaning. When session
+idle is enabled, eviction must be no greater than `idle_seconds`. When disabled,
+any eviction threshold is valid. The setting is ignored for shared ownership.
+
+Both old names, `session_idle_seconds` and `shared_idle_seconds`, are accepted as
+serde aliases. Output uses only `idle_seconds`. **Specify exactly one idle key**:
+any duplicate combination (including two legacy names) is rejected, even if values
+match. If a PR #12 generated config contains both old fields, retain its intended
+ownership's value under `idle_seconds` and remove both old fields before loading.
+An explicitly present legacy alias now sets the unified timer for either ownership;
+remove a previously ignored session idle field from a shared config to retain the
+shared default of off.
+
+```toml
+ownership = "session"
+idle_seconds = 900 # Omit for the session default; 0 disables idle expiry.
+session_idle_evict_seconds = 120
+```
+
+For a reviewed shared non-Docker backend, `ownership = "shared"` with
+`idle_seconds = 900` opts into the same interval; omit the key to keep it alive.
+
+### Set it from the CLI
+
+```sh
+mcp-gate idle NAME                     # Show persisted/effective policy.
+mcp-gate idle NAME 15m --dry-run        # Preview only.
+mcp-gate idle NAME 900 --yes --json     # Save 900 seconds without prompting.
+mcp-gate idle NAME 1h --yes
+mcp-gate idle NAME 90s --dry-run
+mcp-gate idle NAME off --yes            # Saves idle_seconds = 0.
+```
+
+NAME matches a managed gateway ID, full service label, label suffix, or unambiguous
+MCP server name. Seconds and integer `s`/`m`/`h` suffixes are accepted. Session
+durations shorter than the configured eviction threshold are rejected; the command
+never adjusts eviction implicitly. With no `--yes`, a terminal shows a preview and
+asks before saving; non-interactive changes require `--yes`. `--json` is global.
+
+The command edits only the gateway TOML under the setup/remove lock, preserves
+comments and backend configuration, and replaces a legacy idle key with the new
+name. It does not read token/catalog files, probe a backend, change client settings,
+or restart services. The displayed value is the persisted policy; an existing
+process keeps its old policy until restarted. After saving, wait for current actions
+to finish and run the exact restart command printed by the CLI (`launchctl
+kickstart -k ...` on macOS; PowerShell `schtasks.exe /End ...; schtasks.exe /Run ...`
+on Windows). Restart discards sessions and volatile state without replay.
 
 ## Protocol boundary
 
@@ -94,8 +162,8 @@ queue_timeout_seconds = 30
 startup_timeout_seconds = 30
 call_timeout_seconds = 300
 disconnect_grace_seconds = 60
-session_idle_seconds = 900
-session_idle_evict_seconds = 120
+# Shared ownership defaults to no idle expiry. Opt in only after review:
+# idle_seconds = 900
 
 [backend]
 profile = "stdio"
@@ -162,7 +230,8 @@ Use a separate port/state directory for validation. `catalog` is an explicit ref
 and can overwrite that config's existing catalog; keep a reviewed copy before refresh.
 `check` and discovery do not launch backend processes or read backend secret files.
 `status` reports ownership, concurrency, queue limits and shared dormant/running/failed
-state, in addition to sessions/workers. `close-session` does not kill a shared worker.
+state, in addition to sessions/workers. Runtime health exposes the effective
+`idle_seconds` (seconds, or JSON null when disabled). `close-session` does not kill a shared worker.
 The existing `install` command is still Chrome-specific; generic install/rollback is
 a separate remaining migration gate. Never overwrite the working installation.
 

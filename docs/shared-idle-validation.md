@@ -1,5 +1,11 @@
 # Shared idle shutdown: local Windows validation
 
+These measurements predate the unified `idle_seconds` config name. The setting
+formerly called `shared_idle_seconds` is now an input alias; the shared lifecycle
+mechanics below are unchanged. This is historical Windows evidence, not a claim
+that the renamed config/CLI has been revalidated with a real backend. The common
+activity rule and ownership defaults are in [configurable-runtime.md](configurable-runtime.md#backend-idle-policy).
+
 These are local observations on Windows x64, not release acceptance or results for
 other platforms. The source base was v0.1.1 (`3bc397ef090ba70f26ac638abd62b328cded1d7e`).
 The backend was `@nexus2520/bitbucket-mcp-server` 3.0.1 (serverInfo reports 3.0.0),
@@ -14,8 +20,10 @@ cargo test --locked --features test-backend --test shared_idle
 ```
 
 The Windows check passed source budgets, formatting, strict workspace Clippy and
-all non-ignored unit/mock integration tests. The new configuration test checks
-default-off serialization and rejects zero, session ownership and Docker. The new
+all non-ignored unit/mock integration tests. The original configuration test checked
+the former shared-only policy. Current configuration tests cover defaults per
+ownership, `0`/`"off"`, alias round trips and duplicate rejection, shared Docker
+rejection, and session eviction bounds (including disabled idle). The preserved
 `shared_idle` suite checks:
 
 - An idle worker exits while two HTTP sessions and an open SSE stream survive;
@@ -40,7 +48,7 @@ proven test-fixture problem.
 
 | Check | Observed result |
 | --- | --- |
-| `shared_idle_seconds = 900` | Backend processes gone after 901.293 seconds of inactivity |
+| Shared `idle_seconds = 900` (then named `shared_idle_seconds`) | Backend processes gone after 901.293 seconds of inactivity |
 | Summed gateway process-tree working set | 331.51 MiB warm to 6.22 MiB idle |
 | HTTP/SSE at the idle boundary | Both session IDs and streams retained; zero backend workers |
 | Final build, separate 8-second idle cycle | Same-session restart passed; two parallel reads used one new worker |
